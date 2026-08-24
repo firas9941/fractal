@@ -319,13 +319,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- The in-tree version is `1.2.0.dev0`: a development checkout no longer reports
-  the same `1.1.0` as the released package, so an installed release and an
-  editable dev install are distinguishable by version string alone — a shimmed
-  release binary once answered three separate version probes with exactly the
-  number the dev tree was expected to report, costing a full diagnostic cycle.
-  The release commit sets the final `1.2.0`.
-
 - `node list`'s documented schema matches what it prints: the `detail` and
   `spend` columns are listed, and the `detail` vocabulary is enumerated (pending
   signals, exit reasons, `run exhausted:`, `orphaned`, `model drop`,
