@@ -1300,7 +1300,7 @@ def test_lifecycle_guard_rejects_idle_node(
     can surface it.
     """
     result = _run(repo['task'], 'node', command)
-    assert result.returncode == 1
+    assert result.returncode == 2
     assert message in result.stderr
     assert result.stdout.strip() == ''
 
@@ -1494,22 +1494,22 @@ def test_update_validates_config_like_init(repo: dict) -> None:
     assert spawn.returncode == 0, spawn.stderr
     capped = root / '.worktrees' / 'main.capped'
     # max_cost=0 is rejected (a $0 ceiling degenerates the subtree check);
-    # the invariant layer lives in core (exit 1), not the CLI boundary
+    # the invariant layer lives in core (exit 2), not the CLI boundary
     zero = _run(root, 'node', 'update', 'main.capped', '--max-cost', '0')
-    assert zero.returncode == 1
+    assert zero.returncode == 2
     assert 'max_cost' in (zero.stdout + zero.stderr)
     # lowering max_cost below the stored max_iter_cost inverts the ordering
     inverted = _run(root, 'node', 'update', 'main.capped', '--max-cost', '5')
-    assert inverted.returncode == 1
+    assert inverted.returncode == 2
     assert 'max_iter_cost' in (inverted.stdout + inverted.stderr)
     # raising a per-iter cap above the effective max_cost is the same
     # inversion from the other side
     iter_over = _run(root, 'node', 'update', 'main.capped', '--max-iter-cost', '15')
-    assert iter_over.returncode == 1
+    assert iter_over.returncode == 2
     assert 'max_iter_cost' in (iter_over.stdout + iter_over.stderr)
     # a step cap above the stored max_iter_cost breaks step <= iter
     step_over = _run(root, 'node', 'update', 'main.capped', '--max-step-cost', '9')
-    assert step_over.returncode == 1
+    assert step_over.returncode == 2
     assert 'max_step_cost' in (step_over.stdout + step_over.stderr)
     # the rejected updates never touched the stored config
     assert _config(capped, 'max_cost') == '10.0'
@@ -1586,12 +1586,12 @@ def test_update_rejects_iter_cost_on_uncapped_child(
 
     Mirrors init's guard: ``docs`` carries no ``max_cost``, so granting it a
     per-iter/step cap alone would be unenforceable once the per-iter budget
-    drains. The rejection comes from core's retune policy (exit 1), names
+    drains. The rejection comes from core's retune policy (exit 2), names
     ``--max-cost``, and writes nothing.
     """
     root, docs = repo['root'], repo['docs']
     rejected = _run(root, 'node', 'update', 'main.docs', flag, '5')
-    assert rejected.returncode == 1, rejected.stderr
+    assert rejected.returncode == 2, rejected.stderr
     assert '--max-cost' in (rejected.stdout + rejected.stderr)
     assert _config(docs, key) == ''
 

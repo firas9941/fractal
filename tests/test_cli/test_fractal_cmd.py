@@ -164,9 +164,9 @@ def test_commit_records_the_iteration_and_clears_the_check(
     assert _run(task, 'commit', '--check').returncode != 0
     # a real commit stages the work + seed and lands a commit on the branch
     (task / 'feature.txt').write_text('the work\n', encoding='utf-8')
-    # a message repeating the composed labels is rejected, exit 1
+    # a message repeating the composed labels is rejected, exit 2
     rejected = _run(task, 'commit', 'main.task: iteration 3 fix')
-    assert rejected.returncode == 1
+    assert rejected.returncode == 2
     assert 'bare lowercase summary' in rejected.stderr
     committed = _run(task, 'commit', 'add feature')
     assert committed.returncode == 0, committed.stderr

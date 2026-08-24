@@ -204,7 +204,7 @@ def test_signal_rejected_from_non_active_status(
 
     A finished, stopped, exited, killed, or retired node is not running, so
     ``finish``/``stop``/``pause``/``kill``/``finish --cancel`` must each fail
-    with a clear ``RuntimeError`` (exit 1, message on stderr, no stdout) and
+    with a clear ``RuntimeError`` (exit 2, message on stderr, no stdout) and
     must not mutate the node's status. The refusal itself is durable
     evidence: a ``failed`` event row naming the reason and the actor who
     tried, so a raced sweep's skipped node is never a silent mystery.
@@ -212,7 +212,7 @@ def test_signal_rejected_from_non_active_status(
     guard = repo['guard']
     Node(guard).status_set(status)
     result = _run(guard, 'node', *command.split())
-    assert result.returncode == 1
+    assert result.returncode == 2
     assert _REJECT_MESSAGES[command].format(status=status) in result.stderr
     assert result.stdout.strip() == ''
     # the rejected signal leaves the lifecycle state untouched
@@ -337,7 +337,7 @@ def test_tree_pause_latches_and_resume_releases(
     assert _run(wt, 'node', 'status').stdout.strip() == 'active (pausing)'
     # the latch refuses new work, even at depth 1
     refused = _run(root, 'node', 'init', 'latched_out', '--agent', 'claude')
-    assert refused.returncode == 1
+    assert refused.returncode == 2
     assert 'Cannot spawn under a paused node' in refused.stderr
     # re-braking an already-signaled tree is a clean no-op
     again = _run(root, 'pause')
@@ -387,7 +387,7 @@ def test_finish_cancel_withdraws_the_pending_signal(
     assert _cell(wt, events) == '1'
     # a second cancel has nothing to withdraw and refuses without mutating
     empty = _run(wt, 'node', 'finish', '--cancel')
-    assert empty.returncode == 1
+    assert empty.returncode == 2
     assert 'no finish signal' in empty.stderr
     assert _run(wt, 'node', 'status').stdout.strip() == 'active'
 
@@ -756,10 +756,10 @@ def test_kill_is_terminal_for_further_signals(repo: dict) -> None:
     wt, _ = _arm(repo['root'], 'terminal')
     assert _run(wt, 'node', 'kill').returncode == 0
     second = _run(wt, 'node', 'kill')
-    assert second.returncode == 1
+    assert second.returncode == 2
     assert 'status: killed' in second.stderr
     after_finish = _run(wt, 'node', 'finish')
-    assert after_finish.returncode == 1
+    assert after_finish.returncode == 2
     assert 'Cannot finish' in after_finish.stderr
 
 
@@ -813,7 +813,7 @@ def test_step_approve_is_parent_only_and_validates_the_step(repo: dict) -> None:
     record.step_pending(step_id=step_id)
     # a node approving its own step (not its parent) is rejected; stays pending
     denied = _run(wt, 'node', 'approve', 'main.approveperm', f'{step_id}')
-    assert denied.returncode == 1
+    assert denied.returncode == 2
     assert denied.stderr.startswith('Error:')
     assert 'parent' in denied.stderr
     assert not record.step_approved(step_id=step_id)
@@ -843,11 +843,11 @@ def test_step_approve_is_parent_only_and_validates_the_step(repo: dict) -> None:
         'main.approvenull',
         f'{step_id2}',
     )
-    assert no_req.returncode == 1
+    assert no_req.returncode == 2
     assert 'does not require approval' in no_req.stderr
     # approving a non-existent step is a ValueError
     missing = _run(repo['root'], 'node', 'approve', 'main.approvenull', '999999')
-    assert missing.returncode == 1
+    assert missing.returncode == 2
     assert 'not found' in missing.stderr
     # a doomed approval logs nothing -- both guards fire before event_start, so
     # neither rejection left an approve event on the parent's feed

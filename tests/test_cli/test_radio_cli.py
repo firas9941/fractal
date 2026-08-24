@@ -190,7 +190,7 @@ def test_send_and_post_reject_write_only_and_out_of_range_priority(
     (owner only), so a foreign write is a permission error; a priority
     outside 0-10 is a value error. Both are domain errors raised in the
     core, so they must surface through the ``@command`` wrapper as a clean
-    ``Error: <message>`` (exit 1) -- never the raw
+    ``Error: <message>`` (exit 2) -- never the raw
     ``PermissionError:``/``ValueError:`` class name that reads like an
     uncaught crash.
     """
@@ -209,7 +209,7 @@ def test_send_and_post_reject_write_only_and_out_of_range_priority(
         '--priority',
         '5',
     )
-    assert blocked.returncode == 1
+    assert blocked.returncode == 2
     assert blocked.stderr.startswith('Error:')
     assert 'PermissionError' not in blocked.stderr
     assert 'write-only' in blocked.stderr.lower()
@@ -225,7 +225,7 @@ def test_send_and_post_reject_write_only_and_out_of_range_priority(
         '--priority',
         '11',
     )
-    assert too_high.returncode == 1
+    assert too_high.returncode == 2
     assert too_high.stderr.startswith('Error:')
     assert 'ValueError' not in too_high.stderr
     assert 'priority' in too_high.stderr.lower()
@@ -238,7 +238,7 @@ def test_failed_commands_end_with_an_unmistakable_failed_line(repo: dict) -> Non
     ``tail -1`` looked identical to a success frame, so a night of failed
     sends passed as delivered. Every failure now closes with a line naming
     the failure and the exit code -- parse errors (exit 2, with the correct
-    usage named) and domain errors (exit 1) alike -- and a successful send
+    usage named) and domain errors (exit 2) alike -- and a successful send
     never carries it.
     """
     alpha = repo['alpha']
@@ -249,7 +249,7 @@ def test_failed_commands_end_with_an_unmistakable_failed_line(repo: dict) -> Non
     assert 'Usage:' in unknown.stderr
     assert unknown.stderr.rstrip().splitlines()[-1] == 'FAILED (exit 2)'
     assert unknown.stdout.strip() == ''
-    # domain error: exit 1 through the command wrapper, same closing line
+    # domain error: exit 2 through the command wrapper, same closing line
     missing = _radio(
         alpha,
         'send',
@@ -261,9 +261,9 @@ def test_failed_commands_end_with_an_unmistakable_failed_line(repo: dict) -> Non
         '--priority',
         '5',
     )
-    assert missing.returncode == 1
+    assert missing.returncode == 2
     assert missing.stderr.startswith('Error:')
-    assert missing.stderr.rstrip().splitlines()[-1] == 'FAILED (exit 1)'
+    assert missing.stderr.rstrip().splitlines()[-1] == 'FAILED (exit 2)'
     # a successful send never carries the failure line
     sent = _radio(
         alpha,
@@ -484,7 +484,7 @@ def test_send_crosses_classes_and_post_refuses_private(repo: dict) -> None:
         '--priority',
         '5',
     )
-    assert wrong_post.returncode == 1
+    assert wrong_post.returncode == 2
     assert 'fractal radio send' in wrong_post.stderr
 
 
@@ -531,7 +531,7 @@ def test_channel_not_found_names_the_remedy(
         '--priority',
         '5',
     )
-    assert missing.returncode == 1
+    assert missing.returncode == 2
     assert message in missing.stderr
     assert 'unspecified' not in missing.stderr
 
@@ -766,7 +766,7 @@ def test_read_path_selects_mailbox_never_reader(repo: dict) -> None:
     # a read-only channel never impersonates: the root cannot read alpha's inbox
     _send(alpha, 'owner only', channel='inbox', subject='own')
     denied = _run(root, 'radio', 'read', '--channel', 'inbox', '--path', f'{alpha}')
-    assert denied.returncode == 1
+    assert denied.returncode == 2
     assert 'read-only' in denied.stderr
 
 
@@ -887,7 +887,7 @@ def test_body_listings_answer_to_the_reader_never_to_path(
     uuid = _send(beta, 'listed body', node='main.alpha', subject='lb')
     # the control: read already refuses beta the owner-only inbox
     denied = _run(alpha.parent.parent, 'radio', 'read', uuid, _NODE=f'{beta}')
-    assert denied.returncode == 1
+    assert denied.returncode == 2
     assert 'read-only' in denied.stderr
     # the widened listing refuses identically, whoever --path names
     peeked = _run(
@@ -900,7 +900,7 @@ def test_body_listings_answer_to_the_reader_never_to_path(
         '--path',
         f'{alpha}',
     )
-    assert peeked.returncode == 1
+    assert peeked.returncode == 2
     assert 'read-only' in peeked.stderr
     assert 'listed body' not in peeked.stdout
     # the metadata listing is untouched -- the row is visible, the body is not
@@ -917,7 +917,7 @@ def test_body_listings_answer_to_the_reader_never_to_path(
     archived = _run(
         beta, 'radio', 'messages', '--saved', '--json', '--path', f'{alpha}'
     )
-    assert archived.returncode == 1
+    assert archived.returncode == 2
     assert 'read-only' in archived.stderr
     assert 'listed body' not in archived.stdout
     assert uuid in _radio(alpha, 'messages', '--saved').stdout
@@ -1120,7 +1120,7 @@ def test_sealed_inbox_holds_the_seat_but_not_the_operator(repo: dict) -> None:
     assert uuid not in held.stdout
     assert 'inbox sealed' in held.stderr
     refused = _run(root, 'radio', 'read', uuid, _NODE=f'{alpha}')
-    assert refused.returncode == 1
+    assert refused.returncode == 2
     assert 'inbox sealed' in refused.stderr
     # the operator adjudicates freely -- from outside the sealed node, since
     # the seal binds any caller acting AS that node (its own worktree
@@ -1129,7 +1129,7 @@ def test_sealed_inbox_holds_the_seat_but_not_the_operator(repo: dict) -> None:
     assert uuid in visible.stdout
     # the seat's own unseal refuses; the operator's, from outside, lands
     self_unseal = _run(alpha, 'node', 'config', 'set', 'sealed=false')
-    assert self_unseal.returncode == 1
+    assert self_unseal.returncode == 2
     assert 'cannot lift its own seal' in self_unseal.stderr
     lawful = _run(root, 'node', 'config', 'set', 'sealed=false', '--path', f'{alpha}')
     assert lawful.returncode == 0, lawful.stderr
@@ -1921,15 +1921,15 @@ def test_listing_filters_that_can_only_be_empty_refuse(repo: dict) -> None:
     assert populated.returncode == 0, populated.stderr
     # a typo'd channel names what the mailbox actually has
     typo = _radio(beta, 'messages', '--channel', 'inbx')
-    assert typo.returncode == 1
+    assert typo.returncode == 2
     assert "No 'inbx' channel on main.beta" in typo.stderr
     assert '0 unread' not in typo.stderr
     # so does a feed filter matching no subscription, and an unknown target
     unsubscribed = _radio(beta, 'feed', '--channel', 'inbx')
-    assert unsubscribed.returncode == 1
+    assert unsubscribed.returncode == 2
     assert "No 'inbx' subscription" in unsubscribed.stderr
     unknown = _radio(beta, 'feed', '--node', 'main.nope')
-    assert unknown.returncode == 1
+    assert unknown.returncode == 2
     assert "Node not found: 'main.nope'" in unknown.stderr
     # --since is compared lexicographically against ISO 8601 instants, so a
     # non-timestamp is refused as a usage error on every listing that takes it

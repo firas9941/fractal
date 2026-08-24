@@ -100,7 +100,7 @@ def test_finish_stop_reconcile_a_crashed_active_node(
     """
     worktree = _crashed_worker(root, f'crashed_{command}')
     result = _run(worktree, 'node', command)
-    assert result.returncode == 1
+    assert result.returncode == 2
     assert f'Cannot {command}: node is not active.' in result.stderr
     assert 'has no run' not in result.stderr
     # the crashed node is reconciled to the honest terminal status, not wedged

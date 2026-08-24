@@ -332,7 +332,7 @@ def test_continue_from_killed_prints_the_countermand(repo: dict) -> None:
     assert killed.returncode == 0, killed.stderr
     # a trailing refused kill lands failed on the event stream
     refused = _run(worktree, 'node', 'kill')
-    assert refused.returncode == 1
+    assert refused.returncode == 2
     result = _start_continue(repo, worktree)
     assert result.returncode == 0, result.stderr
     assert 'Previous run killed by operator: wedged' in result.stdout
