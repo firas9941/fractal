@@ -1,10 +1,19 @@
 # Changelog
 
 All notable changes to this project are documented in this file. The format is
-based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
-project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions
+follow a `major.minor.patch` scheme: while the project is young, minor releases
+may include breaking changes, each listed under a Breaking heading.
 
 ## [Unreleased]
+
+### Breaking
+
+- Every command reserves exit 1 for its own nonzero outcome: a command error (an
+  unresolvable node, a refused lifecycle signal, a rejected commit message)
+  exits 2 with an `Error:` line on stderr, beside typer's usage errors — a
+  script gating on exit codes must branch accordingly, never reading a failed
+  run as a command's own nonzero outcome.
 
 ### Added
 
