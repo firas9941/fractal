@@ -161,7 +161,7 @@ def test_commit_records_the_iteration_and_clears_the_check(
     assert _run(repo, 'node', 'init', 'task', '--agent', 'claude').returncode == 0
     task = repo / '.worktrees' / 'main.task'
     # a fresh worker is dirty (its node seed is uncommitted)
-    assert _run(task, 'commit', '--check').returncode != 0
+    assert _run(task, 'commit', '--check').returncode == 1
     # a real commit stages the work + seed and lands a commit on the branch
     (task / 'feature.txt').write_text('the work\n', encoding='utf-8')
     # a message repeating the composed labels is rejected, exit 2

@@ -9,11 +9,11 @@ may include breaking changes, each listed under a Breaking heading.
 
 ### Breaking
 
-- Every command reserves exit 1 for its own nonzero outcome: a command error (an
-  unresolvable node, a refused lifecycle signal, a rejected commit message)
-  exits 2 with an `Error:` line on stderr, beside typer's usage errors — a
-  script gating on exit codes must branch accordingly, never reading a failed
-  run as a command's own nonzero outcome.
+- Every command reserves exit 1 for its own nonzero outcome — a dirty
+  `commit --check`: a command error (an unresolvable node, a refused lifecycle
+  signal, a rejected commit message) exits 2 with an `Error:` line on stderr,
+  beside typer's usage errors — a script gating on exit codes must branch
+  accordingly, never reading a failed run as a command's own nonzero outcome.
 
 ### Added
 
