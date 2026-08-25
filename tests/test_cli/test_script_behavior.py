@@ -21,6 +21,12 @@ real CLI, pinning edges the end-to-end lifecycle tests don't reach:
   content law (``fractal commit --check``), so an estate file the law refuses
   (a parked ``.env``) never blocks the advance -- only work a commit would
   take (dirty tracked edits, committable untracked files) skips it.
+- **``merge.sh`` post-refresh no-op** re-checks the staged squash after the
+  target's wiki index refresh: a squash the refresh fully reverts (a re-merge
+  offering only regenerated wiki state, e.g. a legacy-tracked ``.wiki/cache``)
+  lands on the designed "Nothing to merge" exit instead of dying on the empty
+  index -- and with the cache never entering history, disjoint sibling wiki
+  work merges without a conflict at all.
 - **``merge.sh --continue``** finishes an operator's hand-resolved squash after
   a conflicted merge with the merge's own tail -- seed strip, commit,
   merge-base advance -- and refuses when no squash is in progress. A resolution
@@ -58,6 +64,8 @@ __all__ = [
     'test_init_inherits_parent_skills_on_request',
     'test_merge_preserves_a_target_edit_that_lands_during_the_merge',
     'test_merge_re_merges_an_iterating_child_without_conflict',
+    'test_merge_re_merge_of_a_merged_node_is_a_no_op',
+    'test_merge_sibling_wiki_work_lands_without_conflict',
     'test_failed_merge_restore_removes_the_staged_child_additions',
     'test_merge_advances_the_merge_base_past_a_refused_estate_file',
     'test_merge_skips_the_merge_base_advance_for_dirty_tracked_work',
@@ -317,6 +325,138 @@ def test_merge_re_merges_an_iterating_child_without_conflict(
     assert second.returncode == 0, (second.stdout, second.stderr)
     merged = (repo / 'f.txt').read_text(encoding='utf-8')
     assert merged == 'line1\nline2\n', second.stderr
+
+
+def test_merge_re_merge_of_a_merged_node_is_a_no_op(tmp_path: pathlib.Path) -> None:
+    """A re-merge offering only regenerated wiki state exits 0 as a no-op.
+
+    A tree whose baseline force-tracked the wiki tool's self-ignored
+    ``.wiki/cache/`` churns that cache in every commit (it embeds per-page
+    mtimes), so a re-merge of an already-merged node offers nothing but
+    cache bytes the target's own index refresh regenerates: the refresh
+    reverts the staged squash to ``HEAD``, and a commit attempted anyway
+    would die on the empty index -- a false hard failure on the designed
+    "Nothing to merge" outcome. The merge re-checks the staged squash after
+    the refresh and lands the no-op exit, leaving no squash state behind.
+    """
+    repo = _init_tree(tmp_path / 'noopremergerepo')
+    # a legacy baseline that force-tracked the derived cache past its ignore
+    wiki_dir = repo / 'wiki'
+    subprocess.run(
+        ['wiki', 'update', f'--path={wiki_dir}'],
+        capture_output=True,
+        check=True,
+        env=_cli_env(),
+    )
+    _git(repo, 'add', '-A')
+    _git(repo, 'add', '-f', '--', 'wiki/.wiki/cache')
+    _git(repo, 'commit', '-m', 'legacy baseline tracks the cache')
+    init = _run(repo, 'node', 'init', 'task', '--agent', 'claude', '--local')
+    assert init.returncode == 0, init.stderr
+    worktree = repo / '.worktrees' / 'main.task'
+    # the child does real wiki work and refreshes the tracked cache -- fresh
+    # worktree mtimes, so its cache bytes differ from the target's copy
+    (worktree / 'wiki' / 'topic.md').write_text(
+        '---\nname: topic\ndesc: A topic page.\n---\n\n# topic\n\n***\n',
+        encoding='utf-8',
+    )
+    wiki_dir = worktree / 'wiki'
+    subprocess.run(
+        ['wiki', 'update', f'--path={wiki_dir}'],
+        capture_output=True,
+        check=True,
+        env=_cli_env(),
+    )
+    _git(worktree, 'add', '-A')
+    _git(worktree, 'commit', '-m', 'child wiki page')
+    merge_sh = _scripts_dir() / 'merge.sh'
+    first = subprocess.run(
+        ['bash', f'{merge_sh}', f'{worktree}'],
+        cwd=f'{repo}',
+        capture_output=True,
+        text=True,
+        env=_cli_env(),
+    )
+    assert first.returncode == 0, (first.stdout, first.stderr)
+    merged_head = _git(repo, 'rev-parse', 'HEAD').stdout.strip()
+
+    # the re-merge stages only the cache churn, which the refresh reverts
+    second = subprocess.run(
+        ['bash', f'{merge_sh}', f'{worktree}'],
+        cwd=f'{repo}',
+        capture_output=True,
+        text=True,
+        env=_cli_env(),
+    )
+
+    assert second.returncode == 0, (second.stdout, second.stderr)
+    assert 'Nothing to merge' in second.stdout
+    # no commit landed, and no squash state remains to fake a merge in
+    # progress or prefill a bare git commit's message
+    assert _git(repo, 'rev-parse', 'HEAD').stdout.strip() == merged_head
+    assert not (repo / '.git' / 'SQUASH_MSG').exists()
+    assert not (repo / '.git' / 'MERGE_MSG').exists()
+
+
+def test_merge_sibling_wiki_work_lands_without_conflict(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Two siblings touching only their own wiki pages both merge cleanly.
+
+    Each sibling's commit refreshes the generated wiki state, and the
+    derived ``.wiki/cache/`` self-ignores -- the stage never force-tracks
+    it -- so the only shared surface the merges touch is the ``_index.md``
+    link block the merge driver already resolves: neither merge conflicts,
+    both pages land on the target, and the cache never enters history.
+    """
+    repo = _init_tree(tmp_path / 'siblingrepo')
+    # settle the wiki so each sibling inherits committed settings and the
+    # merges' shared surface is only the generated link block
+    settle = subprocess.run(
+        ['wiki', 'update', '--path', f'{repo}/wiki'],
+        capture_output=True,
+        text=True,
+        env=_cli_env(),
+    )
+    assert settle.returncode == 0, settle.stderr
+    _git(repo, 'add', '-A')
+    _git(repo, 'commit', '-m', 'settle wiki')
+    # both siblings fork from the same tip, then work and merge in turn
+    for name in ('alpha', 'beta'):
+        init = _run(repo, 'node', 'init', name, '--agent', 'claude', '--local')
+        assert init.returncode == 0, init.stderr
+    merge_sh = _scripts_dir() / 'merge.sh'
+    for name in ('alpha', 'beta'):
+        worktree = repo / '.worktrees' / f'main.{name}'
+        (worktree / 'wiki' / f'{name}.md').write_text(
+            f'---\nname: {name}\ndesc: A {name} page.\n---\n\n# {name}\n\n***\n',
+            encoding='utf-8',
+        )
+        wiki_dir = worktree / 'wiki'
+        subprocess.run(
+            ['wiki', 'update', f'--path={wiki_dir}'],
+            capture_output=True,
+            check=True,
+            env=_cli_env(),
+        )
+        _git(worktree, 'add', '-A')
+        _git(worktree, 'commit', '-m', f'{name} wiki page')
+        result = subprocess.run(
+            ['bash', f'{merge_sh}', f'{worktree}'],
+            cwd=f'{repo}',
+            capture_output=True,
+            text=True,
+            env=_cli_env(),
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+
+    # both pages are on the target, and the derived cache never entered
+    # history to manufacture a conflict between the disjoint offerings
+    tracked = _git(repo, 'ls-files', 'wiki').stdout
+    for name in ('alpha', 'beta'):
+        assert (repo / 'wiki' / f'{name}.md').is_file()
+        assert f'wiki/{name}.md' in tracked
+    assert '.wiki/cache' not in tracked
 
 
 def test_failed_merge_restore_removes_the_staged_child_additions(

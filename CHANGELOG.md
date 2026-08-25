@@ -327,6 +327,18 @@ may include breaking changes, each listed under a Breaking heading.
   — one per hour even at the backoff cap. SYNC outcomes now arm and clear the
   streak too, so an outage trips the breaker after three dead launches instead
   of six.
+- The wiki tool's self-ignored derived cache (`<wiki>/.wiki/cache/`) stays out
+  of git history on every commit path. The baseline's force-add overrode the
+  cache's own ignore, and the cache embeds per-page mtimes that every
+  `wiki update` rewrites — so once tracked it churned in every node commit,
+  sibling copies never byte-matched (a guaranteed merge conflict on otherwise
+  disjoint wiki work), and a re-merge whose only surviving offering was that
+  churn died at the squash commit as a false hard failure. The stage excludes
+  now bar the cache from the baseline and every work commit alike, a work commit
+  that finds the cache tracked drops it from the index (the tool keeps the
+  on-disk copy), and the merge re-checks the staged squash after the parent's
+  wiki refresh — a squash the refresh fully reverts lands on the designed
+  "Nothing to merge" no-op instead of dying on the empty index.
 
 ### Changed
 

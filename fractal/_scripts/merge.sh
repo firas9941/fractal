@@ -370,6 +370,32 @@ if command -v wiki &>/dev/null; then
     done
 fi
 
+# nothing staged after the refresh means the squash offered only generated
+# wiki state the parent regenerates as its own bytes -- an adjudicated no-op
+# the pre-refresh guard cannot see, and the commit below would die on the
+# empty index; the squash staged content, so the markers exist on both paths
+# and are cleared like the --continue no-op above
+if git -C "$PARENT_WORKTREE_DIR" diff --cached --quiet; then
+    trap - INT TERM
+    for MARKER in "$(git -C "$PARENT_WORKTREE_DIR" rev-parse --git-path SQUASH_MSG)" \
+        "$(git -C "$PARENT_WORKTREE_DIR" rev-parse --git-path MERGE_MSG)" \
+        "$(git -C "$PARENT_WORKTREE_DIR" rev-parse --git-path AUTO_MERGE)"; do
+        [[ "$MARKER" = /* ]] || MARKER="$PARENT_WORKTREE_DIR/$MARKER"
+        rm -f "$MARKER"
+    done
+    if [[ "$CONTINUE" -eq 0 ]]; then
+        end_merge_event completed
+        echo "Nothing to merge: $BRANCH has no changes for $PARENT_BRANCH"
+        exit 0
+    fi
+    advance_merge_base
+    warn_resolved_against_node
+    end_merge_event completed
+    echo "Nothing to commit for $PARENT_BRANCH: the resolution kept its own" \
+        "content for every change $BRANCH offered"
+    exit 0
+fi
+
 # commit the squash-merge and report success (-q: drop git's own commit
 # summary so the merge line below stays the single user-facing line)
 if ! git -C "$PARENT_WORKTREE_DIR" commit -q -m "merge $BRANCH"; then

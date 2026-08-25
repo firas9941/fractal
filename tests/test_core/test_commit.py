@@ -45,6 +45,7 @@ __all__ = [
     'test_commit_stamps_iteration_from_args_or_open_row',
     'test_commit_rejects_prelabeled_agent_messages',
     'test_commit_refreshes_wiki_indexes',
+    'test_commit_untracks_a_pretracked_wiki_cache',
     'test_commit_update_failure_blocks_commit_but_not_backstops',
     'test_force_commit_body_describes_the_sweep',
     'test_commit_ignore_scope_bypasses_scope_but_not_lint',
@@ -111,6 +112,11 @@ def test_user_node_commit_init_commits_baseline(
     system = git_repo / '.fractal' / 'main' / 'skills' / '.system' / 'imagegen'
     system.mkdir(parents=True)
     (system / 'SKILL.md').write_text('engine-materialized\n', encoding='utf-8')
+    # the wiki tool's self-ignored derived cache sits inside the staged wiki
+    cache = git_repo / 'wiki' / '.wiki' / 'cache'
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / '.gitignore').write_text('*\n', encoding='utf-8')
+    (cache / 'word_counts.json').write_text('{}\n', encoding='utf-8')
     # a fresh clone carries no info/exclude at all, so the baseline cannot
     # lean on a block written at init -- the runtime artifacts beside the
     # seed must stay out of the commit on their own
@@ -134,6 +140,8 @@ def test_user_node_commit_init_commits_baseline(
     assert '.db' not in tracked
     assert 'config.json.lock' not in tracked
     assert 'skills/.system' not in tracked
+    # the wiki's derived cache stays self-ignored past the force-add
+    assert '.wiki/cache' not in tracked
 
 
 def test_commit_pushes_unless_local(tmp_path: pathlib.Path) -> None:
@@ -1040,6 +1048,71 @@ def test_commit_refreshes_wiki_indexes(tmp_path: pathlib.Path) -> None:
     )
     status = result.stdout
     assert status == ''
+
+
+def test_commit_untracks_a_pretracked_wiki_cache(tmp_path: pathlib.Path) -> None:
+    """A work commit drops a tracked wiki cache and never re-tracks it.
+
+    The wiki tool derives ``.wiki/cache/`` and self-ignores it, but a tree
+    whose baseline once force-tracked it carries per-page mtimes that every
+    ``wiki update`` rewrites -- churn riding every commit and defeating the
+    byte-match parent and child copies need to merge cleanly. The stage
+    drops a tracked cache from the index (the on-disk copy stays), so the
+    next commit converges the tree and the cache's own ignore holds from
+    there: the refreshed cache reads back clean, never dirty.
+    """
+    repo = _make_git_repo(tmp_path / 'repo')
+    Node(repo).init(agent='claude', user=True)
+    output = Node(repo).init(name='task', agent='claude', local=True)
+    project_dir = _parse_project_dir(output)
+    for key, val in (('user.email', 'test@test.com'), ('user.name', 'Test')):
+        subprocess.run(
+            ['git', 'config', key, val],
+            cwd=project_dir,
+            capture_output=True,
+            check=True,
+        )
+    node = Node(project_dir)
+    # a legacy baseline that force-tracked the derived cache past its ignore
+    wiki_dir = project_dir / 'wiki'
+    subprocess.run(
+        ['wiki', 'update', f'--path={wiki_dir}'],
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ['git', 'add', '-A'],
+        cwd=project_dir,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ['git', 'add', '-f', '--', 'wiki/.wiki/cache'],
+        cwd=project_dir,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ['git', 'commit', '-m', 'legacy baseline tracks the cache'],
+        cwd=project_dir,
+        capture_output=True,
+        check=True,
+    )
+    # a work commit drops the cache from tracking and keeps the disk copy
+    (project_dir / 'work.txt').write_text('work\n', encoding='utf-8')
+    node.commit('do the work')
+
+    tracked = subprocess.run(
+        ['git', '-C', f'{project_dir}', 'ls-files', 'wiki'],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert '.wiki/cache' not in tracked
+    assert (wiki_dir / '.wiki' / 'cache' / 'word_counts.json').is_file()
+    # untracked again, the refresh's rewrites stay invisible: the tree reads
+    # back clean and the loop's net never fires over the churn
+    node.commit(check=True)
 
 
 def test_commit_update_failure_blocks_commit_but_not_backstops(

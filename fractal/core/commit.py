@@ -47,6 +47,10 @@ _STAGE_EXCLUDES = (
     ':!**/.*-*.tmp',
     # engine-materialized system skills
     ':!**/skills/.system/*',
+    # the wiki tool's self-ignored derived cache -- the dir entry and, for
+    # per-file listings, its contents
+    ':!**/.wiki/cache',
+    ':!**/.wiki/cache/**',
 )
 
 
@@ -787,6 +791,14 @@ def _stage(
     # is already outside the sweep anyway.
     denied = _estate_denied(node, fractal_prefix)
     withheld = [f':(exclude,literal){path}' for path in denied]
+    # heal a baseline that force-tracked the wiki tool's self-ignored derived
+    # cache: drop it from the index -- never the disk, the tool owns the bytes
+    # -- so this commit converges the tree and the cache's own ignore keeps it
+    # untracked from here on; unguarded, since upkeep must never block a save
+    cache = worktree / wiki_prefix / '.wiki' / 'cache'
+    cmd = ['rm', '-r', '--cached', '--quiet', '--ignore-unmatch']
+    cmd += ['--', f':(literal){cache}']
+    fractal.util.git.run(cmd, cwd=worktree, check=False)
     if scoped:
         # stage only paths that exist -- a scope dir that is planned
         # but not yet created would otherwise make `git add` fatal
