@@ -167,13 +167,16 @@ fail_target() {
 # original fork point and spuriously conflicts on every re-touched file; record
 # the parent's post-merge commit on the child with an ours-merge (tree
 # unchanged) only when the child worktree is clean and still on its own branch;
-# a mid-iteration child is left untouched (the parent merge already succeeded)
+# a mid-iteration child is left untouched (the parent merge already succeeded);
+# cleanliness is the commit content law's ('fractal commit --check'): an estate
+# file the law refuses to commit (a parked credential) can never clear, so
+# counting it as dirt would pin the base to the fork point forever
 advance_merge_base() {
     CHILD_HEAD=$(git -C "$WORKTREE_DIR" rev-parse --abbrev-ref HEAD)
     if [[ "$CHILD_HEAD" != "$BRANCH" ]]; then
         echo "Warning: skipped advancing $BRANCH's merge-base (its worktree is on" \
             "$CHILD_HEAD, not $BRANCH); a later re-merge may re-diff from the fork point" >&2
-    elif [[ -n "$(git -C "$WORKTREE_DIR" status --porcelain)" ]]; then
+    elif ! fractal commit --check --path="$WORKTREE_DIR" &>/dev/null; then
         echo "Warning: skipped advancing $BRANCH's merge-base (its worktree has" \
             "uncommitted changes); a later re-merge may re-diff from the fork point" >&2
     else

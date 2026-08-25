@@ -17,6 +17,10 @@ real CLI, pinning edges the end-to-end lifecycle tests don't reach:
   immediately before the destructive squash, so an edit that lands in the
   target *during* the merge is refused -- never absorbed into the squash commit
   nor discarded by the recovery ``reset --hard``.
+- **``merge.sh`` merge-base advance** judges the child worktree by the commit
+  content law (``fractal commit --check``), so an estate file the law refuses
+  (a parked ``.env``) never blocks the advance -- only work a commit would
+  take (dirty tracked edits, committable untracked files) skips it.
 - **``merge.sh --continue``** finishes an operator's hand-resolved squash after
   a conflicted merge with the merge's own tail -- seed strip, commit,
   merge-base advance -- and refuses when no squash is in progress. A resolution
@@ -55,6 +59,8 @@ __all__ = [
     'test_merge_preserves_a_target_edit_that_lands_during_the_merge',
     'test_merge_re_merges_an_iterating_child_without_conflict',
     'test_failed_merge_restore_removes_the_staged_child_additions',
+    'test_merge_advances_the_merge_base_past_a_refused_estate_file',
+    'test_merge_skips_the_merge_base_advance_for_dirty_tracked_work',
     'test_merge_continue_finishes_a_hand_resolved_squash',
     'test_merge_continue_finishes_a_target_only_resolution',
     'test_merge_continue_names_files_resolved_against_the_node',
@@ -369,6 +375,117 @@ def test_failed_merge_restore_removes_the_staged_child_additions(
     )
     assert (repo / 'keep.txt').read_text(encoding='utf-8') == 'operator scratch\n'
     assert _git(repo, 'log', '-1', '--format=%s').stdout.strip() != 'merge main.task'
+
+
+# ------ merge.sh: the merge-base advance and the commit content law
+
+
+def test_merge_advances_the_merge_base_past_a_refused_estate_file(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A refused estate file never blocks the merge-base advance.
+
+    The commit content law leaves a file a node parked in its estate (a
+    ``.env``, a credential) untracked forever: ``fractal commit`` refuses it
+    by name and ``commit --check`` reads clean with it present. A raw
+    porcelain gate would count it as dirt, skip the advance after *every*
+    merge, and re-diff each re-merge from the original fork point --
+    spuriously conflicting on every already-merged file until an operator
+    hand-resolves. The advance judges cleanliness the way the law does, so
+    the base advances past the parked file and the re-merge lands clean.
+    """
+    repo = _init_tree(tmp_path / 'estaterepo')
+    init = _run(repo, 'node', 'init', 'task', '--agent', 'claude', '--local')
+    assert init.returncode == 0, init.stderr
+    worktree = repo / '.worktrees' / 'main.task'
+    # first iteration: real work, committed with init's scaffolding settled
+    (worktree / 'f.txt').write_text('line1\n', encoding='utf-8')
+    _git(worktree, 'add', '-A')
+    _git(worktree, 'commit', '-m', 'child v1')
+    # the node parks a refused estate file -- the law never lets it commit
+    estate = worktree / '.fractal' / 'main.task'
+    (estate / '.env').write_text('SECRET=1\n', encoding='utf-8')
+    merge_sh = _scripts_dir() / 'merge.sh'
+    first = subprocess.run(
+        ['bash', f'{merge_sh}', f'{worktree}'],
+        cwd=f'{repo}',
+        capture_output=True,
+        text=True,
+        env=_cli_env(),
+    )
+    assert first.returncode == 0, first.stderr
+
+    # the advance happened despite the parked file: no skip warning, and the
+    # parent's merge commit is an ancestor of the child
+    assert 'skipped advancing' not in first.stderr, first.stderr
+    main_head = _git(repo, 'rev-parse', 'HEAD').stdout.strip()
+    ancestor = subprocess.run(
+        ['git', 'merge-base', '--is-ancestor', main_head, 'HEAD'],
+        cwd=f'{worktree}',
+        capture_output=True,
+        text=True,
+    )
+    assert ancestor.returncode == 0, ancestor.stderr
+
+    # second iteration: the child re-touches the same file and merges again
+    (worktree / 'f.txt').write_text('line1\nline2\n', encoding='utf-8')
+    _git(worktree, 'add', 'f.txt')
+    _git(worktree, 'commit', '-m', 'child v2')
+    second = subprocess.run(
+        ['bash', f'{merge_sh}', f'{worktree}'],
+        cwd=f'{repo}',
+        capture_output=True,
+        text=True,
+        env=_cli_env(),
+    )
+
+    # the re-merge diffs only the new work -- no spurious conflict on the
+    # already-merged file -- and the target carries the later content
+    assert second.returncode == 0, (second.stdout, second.stderr)
+    merged = (repo / 'f.txt').read_text(encoding='utf-8')
+    assert merged == 'line1\nline2\n', second.stderr
+
+
+def test_merge_skips_the_merge_base_advance_for_dirty_tracked_work(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Genuinely dirty tracked work still skips the merge-base advance.
+
+    The law-based cleanliness gate must not over-correct: an uncommitted
+    edit to a tracked file is work a commit would take, so the ours-merge
+    stays skipped (with the warning) and the mid-iteration child is left
+    untouched.
+    """
+    repo = _init_tree(tmp_path / 'dirtyrepo')
+    init = _run(repo, 'node', 'init', 'task', '--agent', 'claude', '--local')
+    assert init.returncode == 0, init.stderr
+    worktree = repo / '.worktrees' / 'main.task'
+    # committed work, then an uncommitted edit on top -- a mid-iteration tree
+    (worktree / 'f.txt').write_text('line1\n', encoding='utf-8')
+    _git(worktree, 'add', '-A')
+    _git(worktree, 'commit', '-m', 'child v1')
+    (worktree / 'f.txt').write_text('line1\nuncommitted\n', encoding='utf-8')
+    merge_sh = _scripts_dir() / 'merge.sh'
+    result = subprocess.run(
+        ['bash', f'{merge_sh}', f'{worktree}'],
+        cwd=f'{repo}',
+        capture_output=True,
+        text=True,
+        env=_cli_env(),
+    )
+
+    # the merge lands, but the advance is skipped and warned about: the
+    # parent's merge commit is no ancestor of the child
+    assert result.returncode == 0, result.stderr
+    assert 'skipped advancing' in result.stderr, (result.stdout, result.stderr)
+    main_head = _git(repo, 'rev-parse', 'HEAD').stdout.strip()
+    ancestor = subprocess.run(
+        ['git', 'merge-base', '--is-ancestor', main_head, 'HEAD'],
+        cwd=f'{worktree}',
+        capture_output=True,
+        text=True,
+    )
+    assert ancestor.returncode != 0, 'merge-base advanced past dirty tracked work'
 
 
 # ------ merge.sh: finishing a hand-resolved squash with --continue
