@@ -89,8 +89,9 @@ and maps every detail you pinned down — a name, a budget, a model, limits —
 onto the matching ``fractal node init`` flag. All configuration routes
 through ``fractal node init`` and lands in the node's ``config.json``;
 ``fractal node start`` just launches, taking only ``--continue`` /
-``--clean`` (and ``--max-cost`` accompanying a continue) when resuming an
-existing node. A directive can be as thin or as thorough as you like:
+``--clean`` (and ``--max-cost`` or ``--drain`` accompanying a continue)
+when resuming an existing node. A directive can be as thin or as thorough
+as you like:
 
 .. code-block:: text
 
@@ -281,11 +282,13 @@ The agent determines the node's state and proceeds accordingly:
 
 Along the way the skill teaches the repository facts that matter: the project
 ``wiki/`` is git-tracked and never belongs in ``.gitignore``; the root's
-``.fractal/`` is git-ignored on the top-level branch via the repo-local
-``.git/info/exclude`` (toggled by ``fractal track`` / ``fractal untrack``,
-which never touch the index); and the wiki merge driver lives in repo-local
-git config, which does not survive a clone — re-running ``fractal init``
-after cloning registers it again.
+``.fractal/<branch>/`` is git-ignored on the top-level branch by its own
+self-ignore ``.gitignore`` (toggled by ``fractal track`` /
+``fractal untrack``, which never touch the index), while fractal's runtime
+artifacts ride the repo-local ``.git/info/exclude``; and the wiki merge
+driver lives in repo-local git config, which does not survive a clone — run
+``wiki config --path=wiki`` after cloning to register it again
+(``fractal init`` re-registers it only when it creates the wiki).
 
 Define the node
 ~~~~~~~~~~~~~~~

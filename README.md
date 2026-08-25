@@ -99,7 +99,8 @@ skills (pass `--link` for symlinked install).
 ## Usage
 
 A fractal is a tree of git worktrees, each running an autonomous agent loop. The
-root node branches from your working tree, and child nodes branch from their
+root (user) node is your current branch itself — it has no worktree or loop of
+its own; top-level nodes branch from it, and child nodes branch from their
 parent. Agents iterate in tmux sessions, and all state (runs, iters, steps,
 costs, signals) is tracked in a local SQLite database.
 
@@ -140,9 +141,11 @@ Parameters the skill interprets from the directive:
 - **`provider`**: provider route for the agent (e.g. `openrouter`); inherits the
   user node's default when omitted
 - **`model`**: model override; when omitted, the agent uses its own default
-  model
-- **`effort`**: reasoning-effort override; when omitted, each agent seed's own
-  pinned level applies, not the vendor default
+  model (Claude runs on the seed's `best` alias, or
+  `anthropic/claude-sonnet-4.6` when routed through OpenRouter)
+- **`effort`**: reasoning-effort override; when omitted, the Claude and Codex
+  seeds' own pinned level (`high`) applies rather than the vendor default, while
+  Grok, OpenCode, and Oh My Pi fall back to the vendor default
 - **`max-iters`**: per-run iteration cap
 - **`max-depth`**: maximum child node nesting depth
 - **`max-children`**: maximum direct child nodes

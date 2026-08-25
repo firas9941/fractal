@@ -26,9 +26,9 @@ do. Interpret it: distill the node's goal, and map anything the user pinned down
 (a name, a budget, a model, limits, ...) onto the parameters below, each of
 which becomes the matching `fractal node init` flag. The `/fractal` skill routes
 all the configuration to `fractal node init` and passes only
-`--continue`/`--clean` (when the directive asks to continue an existing node) to
-`fractal node start` — plus `--max-cost` when it accompanies a continue (a
-continue re-arms the cap at start, not init).
+`--continue`/`--clean`/`--drain` (when the directive asks to continue an
+existing node) to `fractal node start` — plus `--max-cost` when it accompanies a
+continue (a continue re-arms the cap at start, not init).
 
 **Parameters** — all configuration. Set by `fractal node init`, written to
 `config.json`, and editable there before launch:
@@ -45,6 +45,14 @@ continue re-arms the cap at start, not init).
   config always inherits. A top-level spawn's parent is the user node, which
   carries no steps, scripts, or skills — the parameter is for configured nodes
   spawning children
+- **`steps`**: directory of `NN-` prefixed step files (`*.md`) to seed `steps/`
+  from instead of the package seed; mutually exclusive with `inherit=steps`
+- **`profile`**: named seed bundle under `.fractal/profiles/<name>/` — its
+  `steps/` seeds the step list and its `NODE.md` a deployment-ready charter
+  (fill-sheet validated at init); mutually exclusive with `steps` and
+  `inherit=steps`
+- **`pin`**: commission pin (a commit sha): must resolve, and every `pin:` line
+  in the profile charter must match it
 - **`agent`**: agent command; inherits the user node's default when omitted
 - **`provider`**: provider route for the agent (e.g. `openrouter`); inherits the
   user node's default when omitted
@@ -59,6 +67,8 @@ continue re-arms the cap at start, not init).
 - **`timeout`**: per-run time limit (e.g. `30m`, `1.5h`)
 - **`iter-timeout`**: per-iteration time limit (e.g. `30m`, `1.5h`)
 - **`step-timeout`**: per-step time limit (e.g. `30s`, `10m`); caps each step
+- **`step-retries`**: retries per failed step (default: `1`; `0` disables)
+- **`step-retry-backoff`**: delay before each step retry (default: `10s`)
 - **`interval`**: fixed iteration schedule (e.g. `1h`)
 - **`sleep`**: delay between iterations (e.g. `10s`)
 - **`wait`**: sleep between approval-wait sync invocations (default: `1m`)
@@ -74,6 +84,10 @@ continue re-arms the cap at start, not init).
 - **`detached`**: run each step as a separate agent session (default: one
   continuous session)
 - **`local`**: skip pushing to remote after each commit
+- **`blind`**: subscribe to no radio channels (the parent still reads this node)
+- **`sealed`**: seal the node's mailbox — its own seat cannot read hosted
+  messages until an operator or the parent unseals it with
+  `config set sealed=false` (the sealed seat cannot lift its own seal)
 
 **Start** — `fractal node start` just launches; all run parameters come from
 `config.json`. A `max_cost` in `config.json` must be positive if set; a missing
@@ -82,6 +96,9 @@ continue re-arms the cap at start, not init).
 - **`--continue`**: continue a stopped/exited node — the launch restores the
   worktree, so uncommitted project files refuse without `--clean`
 - **`--clean`**: with `--continue`, discard uncommitted project files
+- **`--drain`**: with `--continue`, run the new run as a drain — the harness
+  forbids spawns and re-arms from it and tells every seat it is draining
+  (`_DRAIN`)
 - **`--max-cost`**: with `--continue`, re-arm the cost cap for the new run;
   required when the last run ended on its budget
 
@@ -231,8 +248,9 @@ itself lives in repo-local git config, so merges of branches carrying wiki pages
 auto-resolve the generated index sections. Local config does not survive a clone
 — on a fresh clone the attribute is present but the driver is not, and
 `_index.md` merges fall back to git's default and may conflict on generated
-content; re-running `fractal init` registers it (verify with
-`git config --get merge.wiki.driver`).
+content; run `wiki config --path=wiki` (or `--path=<path>/wiki` for a
+sub-project) to register it (verify with `git config --get merge.wiki.driver`) —
+`fractal init` only wires it when it creates the wiki.
 
 The output includes the project directory (worktree root) and the node data
 directory. Read these from the output to use in later steps (e.g.
@@ -393,10 +411,10 @@ them.
 
 All run parameters were set at init (in `config.json`); `start` takes no config
 arguments — only `--continue` (plus `--clean` to discard uncommitted project
-files, and `--max-cost` to re-arm the cap after a budget-ended run) when
-continuing a stopped/exited node. If the user wants to tweak a setting first,
-edit `<node_dir>/config.json`, then start. The node launches in a detached tmux
-session.
+files, `--drain` to run the new run as a drain, and `--max-cost` to re-arm the
+cap after a budget-ended run) when continuing a stopped/exited node. If the user
+wants to tweak a setting first, edit `<node_dir>/config.json`, then start. The
+node launches in a detached tmux session.
 
 ### Step 4: Post-launch briefing
 
@@ -418,10 +436,15 @@ Once the node is running, briefly explain how to interact with it:
   includes retired ones, `--retired` only those). Read `<node_dir>/memory/`
   (knowledge) or `<node_dir>/plans/` (plans). A run that ends `completed` after
   `--max-iters` only means the iteration budget was exhausted, not that the goal
-  was met — check `fractal node activity` for the per-iteration outcomes. Figure
-  scopes differ by design: `cost spent` reads the run's full subtree (children
-  included), while `activity`'s `cost` column sums only the node's own steps —
-  and both are per-run, with no lifetime rollup.
+  was met — `fractal node status` says which: it prints
+  `completed (run exhausted: Reached max iterations (N))` for a cap landing,
+  while a goal-met finish stays bare (`fractal node list`, from a parent or the
+  repo root, carries the same qualifier in its `detail` column and types it in
+  `end_reason` as `run_exhausted` rather than `goal_met`); check
+  `fractal node activity` for the per-iteration outcomes. Figure scopes differ
+  by design: `cost spent` reads the run's full subtree (children included),
+  while `activity`'s `cost` column sums only the node's own steps — and both are
+  per-run, with no lifetime rollup.
 
 - **TUI:** For a live view of the whole tree — nodes, runs, costs, and output —
   suggest the user open the dashboard with `fractal open` (from anywhere in the
@@ -575,10 +598,13 @@ into a worktree to operate on it; to act on another node from elsewhere in the
 repo, name its branch positionally (e.g. `fractal node status <branch>`). Radio
 verbs that write rows (send, post, reply, react, unsend, save, unsave, sub,
 unsub, channel create/delete) act as the loop-exported `_NODE` before the cwd,
-so a node's writes attribute to it from any directory; radio listings stay
-cwd-scoped. `--path` is an escape hatch for running from outside a worktree.
-`fractal node init` is the exception: `<name>` plus the project root via
-`--path`.
+so a node's writes attribute to it from any directory; the listings (messages,
+sent, relays, feed, thread, subs) resolve the same acting node (`_NODE` first,
+else the cwd) so a node reads its own writes, and each closes with an
+`as of <instant> (acting as <branch>)` watermark on stderr naming who it read
+as; only `radio channel list` stays cwd-scoped. `--path` is an escape hatch for
+running from outside a worktree. `fractal node init` is the exception: `<name>`
+plus the project root via `--path`.
 
 Nodes spawn their own children — the running loop sets the `_NODE` environment
 that makes `fractal node init` nest the child under the calling node (the same

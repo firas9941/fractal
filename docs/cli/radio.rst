@@ -72,9 +72,12 @@ attributed to the acting node — ``send``, ``post``, ``reply``, ``react``,
 wins, else the calling node the loop exports, else the node owning the
 current worktree. A production write therefore attributes to the node whose
 loop is running, wherever the CLI call runs from. The pure listings
-(``messages``, ``sent``, ``feed``, ``thread``, ``subs``, ``channel list``)
-are subject selectors instead: ``--path`` (default ``.``) picks whose
-mailbox or rows are viewed. ``radio read`` resolves its reader env-first
+(``messages``, ``sent``, ``feed``, ``relays``, ``subs``) resolve the acting
+node the same env-first way — the loop-exported ``_NODE``, else the node
+owning the current worktree — and ``--path`` overrides it to view another
+node's mailbox or rows. ``thread`` resolves its reader env-first and accepts
+``--path`` only as a same-tree check; ``channel list`` alone takes a plain
+``--path`` (default ``.``). ``radio read`` resolves its reader env-first
 the same way, minus ``--path``: it selects the *mailbox viewed* and never
 the reader — see below.
 
@@ -92,27 +95,30 @@ calls. ``read`` prints message bodies and writes read receipts; ``reply`` and
 your receipts never change another node's unread view.
 
 A **sealed** mailbox (config ``sealed=true``, or ``node init --sealed``)
-holds every hosted message out of its own seat's view: the seat's listings
-come back empty with an ``inbox sealed`` stderr notice, and ``read``,
-``save``, ``unsave``, ``react``, and ``reply`` all refuse over a hosted
-message — a seat that may not read one may not archive, curate, or answer
-it. The seal lifts with ``config set sealed=false``, which the sealed seat
-itself may not run: an operator or the node's parent unseals it. The seal
-binds only the sealed node itself (the caller the loop-exported ``_NODE``
-names, else the node owning the cwd); an operator shell reads freely, and
-the node's own writes stay visible — the hold mechanism for verifier
-isolation.
+holds every hosted message out of its own seat's view: the seat's
+``messages`` listing comes back empty with an ``inbox sealed`` stderr
+notice, while ``feed``, ``thread``, ``relays``, and ``--saved`` drop every
+row the sealed node hosts without naming the seal (``relays`` reports ``0
+relays recorded for <uuid>`` when that empties it), and ``read``, ``save``,
+``unsave``, ``react``, and ``reply`` all refuse over a hosted message — a
+seat that may not read one may not archive, curate, or answer it. The seal
+lifts with ``config set sealed=false``, which the sealed seat itself may not
+run: an operator or the node's parent unseals it. The seal binds only the
+sealed node itself (the caller the loop-exported ``_NODE`` names, else the
+node owning the cwd); an operator shell reads freely, and the node's own
+writes stay visible — the hold mechanism for verifier isolation.
 
 Listings resolve the acting node exactly like the writing verbs — the
 loop-exported ``_NODE`` first, else the cwd's node — so a node reads its own
 writes: a send is visible in the sender's next ``sent`` listing and a
 delivered directive in the recipient's next inbox read, wherever the command
-runs from. ``--path`` still selects another mailbox. Every listing closes
-with a freshness watermark on stderr — ``as of <instant> (acting as
-<branch>)`` — the recorded cut an instrument should carry with any verdict
-it grades from the listing; the instant is read before the query, so a row
-a concurrent sender lands mid-render is never endorsed as absent from the
-cut.
+runs from. ``--path`` still selects another mailbox. Every message and
+subscription listing (``messages``, ``sent``, ``relays``, ``feed``,
+``thread``, ``subs``) closes with a freshness watermark on stderr — ``as of
+<instant> (acting as <branch>)`` — the recorded cut an instrument should
+carry with any verdict it grades from the listing; the instant is read
+before the query, so a row a concurrent sender lands mid-render is never
+endorsed as absent from the cut. ``channel list`` prints no watermark.
 
 Output conventions
 ~~~~~~~~~~~~~~~~~~
@@ -122,9 +128,11 @@ piped; ``--csv`` forces CSV. Where available, ``--json`` prints a JSON array
 of row objects (``[]`` when empty) and is mutually exclusive with ``--csv``.
 Empty results still print the header row, so parsers can key on one shape.
 
-Commands that create a message (``send``, ``post``, ``reply``) print the bare
-message UUID on stdout for scripting; the resolved routing (``sent to
-<node>'s '<channel>' channel``) and any notices ride stderr.
+Commands that create a message (``send``, ``post``, ``reply``) print the
+message UUID on stdout for scripting — bare, except that a ``--node`` send
+prints the ``<uuid> <node>`` receipt, one line per recipient (see ``radio
+send`` below); the resolved routing (``sent to <node>'s '<channel>'
+channel``) and any notices ride stderr.
 
 Sending messages
 ----------------
@@ -341,7 +349,7 @@ the ``inbox`` channel, and only *unread* messages. Listings are metadata-only
      - Include the ``data`` column (requires ``--json``; does not mark
        anything read).
    * - ``--path``
-     - ``.``
+     - the calling node, else the cwd
      - Worktree of the node whose mailbox is listed.
 
 An empty default (unread) view is disambiguated on stderr: ``0 unread (N
@@ -410,11 +418,16 @@ semantics as ``messages``.
 List the recorded relayed copies of a message — the relay-obligation check.
 Every copy sent with ``--relay-of <uuid>`` lists here with its sender and
 recipient, so whether a fleet order was ever passed onward is answerable
-from the store: an empty listing (``0 relays recorded`` on stderr) means no
-relay of the order was ever recorded. The lineage keys on the recorded
-``relay:<uuid>`` marks, so a withdrawn original (``unsend`` deletes the
-original, not the copies) stays auditable; an unknown UUID with no recorded
-relays refuses rather than answering "never relayed".
+from the store: an empty listing (``0 relays recorded for <uuid>`` on
+stderr) means no relay of the order was ever recorded. The lineage keys on
+the recorded ``relay:<uuid>`` marks, so a withdrawn original (``unsend``
+deletes the original, not the copies) stays auditable; an unknown UUID with
+no recorded relays refuses rather than answering "never relayed".
+
+Columns: ``message_uuid``, ``sender``, ``node`` (the recipient),
+``channel``, ``priority``, ``subject``, ``metadata`` (the ``relay:<uuid>``
+mark), ``created_at``. Options: ``--csv``, ``--json`` (mutually exclusive),
+``--path`` (default: the calling node, else the cwd).
 
 ``radio feed``
 ~~~~~~~~~~~~~~
@@ -518,8 +531,8 @@ follows whoever runs the command; ``--path`` only picks which tree the UUID is
 resolved in (they are unique within one), and a ``--path`` into a different
 fractal tree is refused outright.
 
-Options: ``--csv``, ``--json`` (mutually exclusive), ``--path`` (default
-``.``).
+Options: ``--csv``, ``--json`` (mutually exclusive), ``--path`` (default:
+your own tree).
 
 Replying and reacting
 ---------------------
@@ -602,7 +615,7 @@ scripts.
 
 List this node's subscriptions. Columns: ``sub_id``, ``node``, ``target``,
 ``channel``, ``created_at``. Options: ``--csv``, ``--json`` (mutually
-exclusive), ``--path`` (default ``.``).
+exclusive), ``--path`` (default: the calling node, else the cwd).
 
 Channels
 --------

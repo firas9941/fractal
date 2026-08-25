@@ -17,11 +17,13 @@ Every command below follows the same shape:
 Target selection
    Most commands take an optional ``NODE`` argument naming the target node's
    branch. When omitted, the target is the node at ``--path`` (default ``.``),
-   resolved to its git-worktree toplevel. From the repo root, the caller's
-   own node is used when the ``_NODE`` environment variable is set (as it is
-   inside a node's loop); otherwise a single worktree under ``.worktrees/``
-   resolves implicitly (echoed on stderr), and multiple worktrees refuse with
-   a request to name one.
+   resolved to its git-worktree toplevel. From the repo root, the checkout's
+   own user node is the target whenever the checked-out branch carries one
+   (the normal case on the tree's root branch). On a checkout with no user
+   node, the caller's own node is used when the ``_NODE`` environment
+   variable is set (as it is inside a node's loop); otherwise a single
+   worktree under ``.worktrees/`` resolves implicitly (echoed on stderr), and
+   multiple worktrees refuse with a request to name one.
 
 Short names
    Wherever a branch is accepted, a unique trailing segment works: ``lexer``
@@ -41,10 +43,15 @@ Output
    prints a JSON array instead (``[]`` when empty, mutually exclusive with
    ``--csv``). Empty listings still emit the header row. stdout carries the
    parseable result; notices, warnings, and confirmations ride stderr. Core
-   refusals print ``Error: <message>`` on stderr and exit 1; argument errors
-   raised at the CLI boundary (bad values, unknown or ambiguous node names,
-   mutually exclusive flags) print a usage error
-   (``Invalid value: <message>``) and exit 2.
+   refusals print ``Error: <message>`` on stderr and exit 2, as do argument
+   errors raised at the CLI boundary (bad values, unknown or ambiguous node
+   names, mutually exclusive flags), which print a usage error
+   (``Invalid value: <message>``). Exit 1 is reserved for a command's own
+   nonzero outcome — ``fractal commit --check`` on a dirty tree — and for a
+   declined interactive confirmation (``delete`` without ``--force`` prints
+   ``Aborted.``). Whatever the cause, the last stderr line of every failed
+   command is ``FAILED (exit <code>)`` naming the exit code, so a ``tail -1``
+   can never mistake a failure for a success.
 
 Values
    Numeric caps must be non-negative; unlimited is expressed by omitting the
@@ -67,7 +74,7 @@ Creating nodes
 
 Create an agent node: a git worktree on branch ``<parent>.<name>`` under
 ``.worktrees/``, plus a node data directory ``.fractal/<branch>/`` seeded with
-steps, scripts, skills, modes, and ``config.json``. The node's task contract
+steps, scripts, skills, and ``config.json``. The node's task contract
 lives in ``<node_dir>/NODE.md`` — author its *Instructions* and *Completion
 Requirements* sections, then launch with ``fractal node start``.
 
@@ -244,7 +251,8 @@ Running nodes
 
 .. code-block:: console
 
-   $ fractal node start [NODE] [--continue] [--clean] [--max-cost <usd>]
+   $ fractal node start [NODE] [--continue] [--clean] [--drain]
+         [--max-cost <usd>]
 
 Launch the node's iteration loop in a tmux session (named
 ``<repo> (<branch>)`` with dots flattened to dashes). Run parameters
@@ -303,9 +311,11 @@ Signals
 
 Three graceful verbs and one immediate one end or suspend a running node. The
 graceful verbs — ``finish``, ``stop``, ``pause`` — require the target to be
-``active`` with a run; ``kill`` also accepts ``paused`` and a booting ``idle``
-node with a live session. Each accepts ``--reason <text>``, recorded with the
-signal. Refused signals are recorded as failed events in the activity log.
+``active`` with a run; ``kill`` also accepts ``paused`` and ``idle`` nodes —
+a booting node (live session, ``active`` not yet stamped) is reaped, and a
+never-started spawn is stamped ``killed``. Each accepts ``--reason <text>``,
+recorded with the signal. Refused signals are recorded as failed events in
+the activity log.
 
 ``finish`` and ``stop``
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -394,7 +404,7 @@ Integration and teardown
 
 .. code-block:: console
 
-   $ fractal node merge [NODE]
+   $ fractal node merge [NODE] [--continue] [--delete] [--force|-f]
 
 Squash-merge the node's branch into its merge target — the configured
 ``base`` when set, else the dotted parent. One squash commit lands on the
@@ -402,6 +412,21 @@ target; the node's full history stays on its own branch. Merging refuses on
 the user node, when the node itself is ``active`` or ``paused``, and when the
 *target* is ``active`` or ``paused`` (except from inside the target's own
 loop, its normal child-merge path). Non-fatal warnings ride stderr.
+
+``--continue``
+   Finish a hand-resolved squash after a conflicted merge: redo
+   ``git merge --squash`` in the target worktree, resolve and stage the
+   conflicts, then ``merge --continue`` runs the merge's own tail — seed
+   strip, index refresh, commit, merge-base advance.
+
+``--delete``
+   Delete the node (worktree, branch, and whole subtree) after a successful
+   merge. The teardown's refusals and its confirmation prompt (which names
+   the descendant count and suggests ``retire``) run **before** the squash,
+   so a refusal never lands after a merge that already committed.
+
+``--force`` / ``-f``
+   With ``--delete``: skip the confirmation prompt.
 
 .. code-block:: console
 
@@ -587,9 +612,10 @@ bounds the rows returned; ``--json`` emits a JSON array of row objects
 Approvals
 ---------
 
-Steps whose frontmatter sets ``requires_approval: true`` gate on the direct
-parent before running. The waiting child polls in sync mode (paced by its
-``wait`` interval) until the approval lands.
+Steps whose frontmatter sets ``requires_approval: true`` run, then gate on
+the direct parent before the loop advances: once the step's agent invocation
+succeeds, the child waits for approval, polling (with sync passes paced by
+its ``wait`` interval) until the approval lands.
 
 ``approve``
 ~~~~~~~~~~~
@@ -794,8 +820,9 @@ in :doc:`/configuration`.
    $ fractal node config get KEY
 
 Print one config value. Unknown keys refuse with the valid-keys list.
-Booleans render as ``true``/``false``, list values (``scope``) one item per
-line, and an unset key prints nothing (exit 0).
+Booleans render as ``true``/``false``, list values (``scope`` and
+``clone_dirs``) one item per line, and an unset key prints nothing
+(exit 0).
 
 ``config set``
 ~~~~~~~~~~~~~~
@@ -811,7 +838,9 @@ Types are enforced at the boundary: boolean keys accept ``true``/``false``/
 than 0); cost keys a non-negative number — the ceilings (``max_cost``,
 ``max_iter_cost``, ``max_step_cost``) must additionally be positive, with
 ``0`` refused by the merged validation, while ``reserve_budget`` may be
-``0``; ``scope`` a comma- or space-joined list of roots; every other key
+``0``; the list keys ``scope`` and ``clone_dirs`` a comma- or space-joined
+list of repo-relative roots (stored in canonical form; ``.`` is a legal
+scope root but never a ``clone_dirs`` entry); every other key
 stores a literal string. The merged result is validated — cost positivity
 and ordering, reserve range, duration suffixes, pacing exclusivity — before
 anything is written; ``init``'s additional flag
