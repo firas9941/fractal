@@ -4695,6 +4695,8 @@ class Node:
             Commit output and notices.
 
         Raises:
+            DirtyWorktreeError: If ``check`` is set and uncommitted changes
+                remain.
             RuntimeError: If called on a user node without ``init``.
             ValueError: If flags conflict or ``message`` is missing without ``check``.
 

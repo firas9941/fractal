@@ -16,6 +16,7 @@ from typing import Optional
 
 import fractal.util
 from fractal.constants import FRACTAL_FOLDER
+from fractal.exceptions import DirtyWorktreeError
 
 from . import worktree
 from .worktree import exclude_block_lines
@@ -99,10 +100,11 @@ def commit(
         Commit output and notices.
 
     Raises:
-        RuntimeError: On a dirty ``--check``, an out-of-scope change, a
-            failed wiki index refresh, a lint failure, a failed commit,
-            or a ``message`` carrying the subject's own labels (the
-            branch name or ``iteration``).
+        DirtyWorktreeError: On a dirty ``--check``.
+        RuntimeError: On an out-of-scope change, a failed wiki index
+            refresh, a lint failure, a failed commit, or a ``message``
+            carrying the subject's own labels (the branch name or
+            ``iteration``).
 
     """
     worktree = node.worktree
@@ -543,8 +545,8 @@ def _check_clean(node: Node) -> None:
         node: The node whose worktree to check.
 
     Raises:
-        RuntimeError: When any tracked or untracked change the stage could
-            commit remains.
+        DirtyWorktreeError: When any tracked or untracked change the stage
+            could commit remains.
 
     """
     # porcelain, not "diff HEAD": diff lists only tracked changes, so a step
@@ -569,7 +571,9 @@ def _check_clean(node: Node) -> None:
         # bare field -- unprefixed, hence never read as an untracked path
         if entry.startswith('?? ') and _is_refused_estate(entry[3:], prefix):
             continue
-        raise RuntimeError('Uncommitted changes remain (agent should have committed).')
+        raise DirtyWorktreeError(
+            'Uncommitted changes remain (agent should have committed).'
+        )
 
 
 def _scope_check(

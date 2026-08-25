@@ -20,6 +20,7 @@ from fractal.cli.utils import (
 )
 from fractal.constants import FRACTAL_FOLDER
 from fractal.core.node import Node
+from fractal.exceptions import DirtyWorktreeError
 
 __all__ = [
     'version',
@@ -277,9 +278,9 @@ def commit(app: typer.Typer) -> typer.Typer:
         if not message and not check:
             raise typer.BadParameter('Message is required unless --check is set.')
         node = resolve_node(path)
-        # check mode is the command's own nonzero outcome: the check leg
-        # raises only on a dirty tree, so the catch converts it to the
-        # reserved exit 1 rather than the wrapper's error leg
+        # check mode is the command's own nonzero outcome: only the typed
+        # dirty-tree signal converts to the reserved exit 1 -- every other
+        # failure rides through to the wrapper's Error: exit 2
         if check:
             try:
                 node.commit(
@@ -289,7 +290,7 @@ def commit(app: typer.Typer) -> typer.Typer:
                     ignore_scope=ignore_scope,
                     force=force,
                 )
-            except RuntimeError as e:
+            except DirtyWorktreeError as e:
                 typer.echo(f'{e}', err=True)
                 raise SystemExit(1) from e
             return
